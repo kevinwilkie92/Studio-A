@@ -1,0 +1,42 @@
+{
+  "name": "studio-a",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Booking, payments, client notes and SMS for Studio A hair salon — built on Cloudflare Workers + D1.",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "wrangler dev",
+    "dev:web": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --build --force",
+    "cf-typegen": "wrangler types",
+    "db:create": "wrangler d1 create studio-a",
+    "db:migrate:local": "wrangler d1 migrations apply studio-a --local",
+    "db:migrate": "wrangler d1 migrations apply studio-a --remote",
+    "db:seed:local": "wrangler d1 execute studio-a --local --file=./scripts/seed.sql",
+    "db:seed": "wrangler d1 execute studio-a --remote --file=./scripts/seed.sql",
+    "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.9.10",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260921.1",
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "vitest": "~3.2.4",
+    "wrangler": "^4.42.0"
+  }
+}

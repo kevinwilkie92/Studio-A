@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "studio-a",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-09-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    // The SPA owns client-side routing, so unmatched paths fall back to
+    // index.html. `run_worker_first` keeps the API out of that fallback.
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/webhooks/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "studio-a",
+      // Replace after `npm run db:create` prints the real id.
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Drives appointment reminders and drains queued mass texts.
+  "triggers": { "crons": ["*/5 * * * *"] },
+
+  "observability": { "enabled": true },
+
+  "vars": {
+    "APP_ENV": "production"
+  }
+
+  // Secrets (set with `wrangler secret put <NAME>`, never in this file):
+  //   STRIPE_SECRET_KEY        sk_live_... / sk_test_...
+  //   STRIPE_WEBHOOK_SECRET    whsec_...
+  //   STRIPE_PUBLISHABLE_KEY   pk_live_... / pk_test_...  (served to the browser)
+  //   TWILIO_ACCOUNT_SID       AC...
+  //   TWILIO_AUTH_TOKEN        ...
+  //   TWILIO_FROM_NUMBER       +1...  (or TWILIO_MESSAGING_SERVICE_SID)
+  //   ADMIN_SETUP_TOKEN        one-time token for creating the first admin
+}

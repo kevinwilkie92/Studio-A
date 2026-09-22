@@ -1,0 +1,17 @@
+# Copy to .dev.vars for `wrangler dev`. .dev.vars is gitignored.
+# Leave a provider's keys blank to run in dry-run mode: the app records what it
+# WOULD have charged or texted, without calling out to anyone.
+
+STRIPE_SECRET_KEY=
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+# Optional: use a Messaging Service instead of a single number (better for
+# high-volume mass texting). Takes precedence over TWILIO_FROM_NUMBER.
+TWILIO_MESSAGING_SERVICE_SID=
+
+# One-time token for POST /api/admin/bootstrap, which creates the first admin.
+ADMIN_SETUP_TOKEN=change-me-then-delete
