@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, type Service, type StaffMember } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
-import { duration, money } from '../../lib/format'
-import { Alert, Button, Card, Field, Input, PageHeading, Spinner, Textarea } from '../../components/ui'
+import { dateOf, duration, money, phoneDisplay } from '../../lib/format'
+import { Alert, Button, Card, Field, Input, PageHeading, Select, Spinner, Textarea } from '../../components/ui'
 
 interface SalonSettings {
   salon_name: string
@@ -26,6 +26,24 @@ interface Integrations { stripe: boolean; stripe_webhook: boolean; twilio: boole
 
 interface StaffHour { id: string; staff_id: string; weekday: number; start_min: number; end_min: number }
 
+interface TeamMember {
+  id: string
+  first_name: string
+  last_name: string
+  email: string
+  phone: string | null
+  role: 'staff' | 'admin'
+  created_at: number
+}
+
+interface ClientMatch {
+  id: string
+  first_name: string
+  last_name: string
+  email: string
+  phone: string | null
+}
+
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 const minutesToTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
@@ -45,22 +63,64 @@ export default function Settings() {
   const [hours, setHours] = useState<StaffHour[]>([])
   const [status, setStatus] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
 
+  const [team, setTeam] = useState<TeamMember[]>([])
+  const [teamQuery, setTeamQuery] = useState('')
+  const [teamMatches, setTeamMatches] = useState<ClientMatch[]>([])
+  const [teamStatus, setTeamStatus] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+  const [teamBusy, setTeamBusy] = useState<string | null>(null)
+
   const load = useCallback(async () => {
-    const [s, svc, st] = await Promise.all([
+    const [s, svc, st, tm] = await Promise.all([
       isAdmin
         ? api.get<{ settings: SalonSettings; integrations: Integrations }>('/admin/settings').catch(() => null)
         : Promise.resolve(null),
       api.get<{ services: Service[] }>('/services?all=1').catch(() => ({ services: [] })),
       api.get<{ staff: (StaffMember & { active: number })[]; hours: StaffHour[] }>('/admin/staff')
         .catch(() => ({ staff: [], hours: [] })),
+      isAdmin
+        ? api.get<{ team: TeamMember[] }>('/admin/team').catch(() => ({ team: [] }))
+        : Promise.resolve({ team: [] }),
     ])
     if (s) { setSettings(s.settings); setIntegrations(s.integrations) }
     setServices(svc.services)
     setStaff(st.staff)
     setHours(st.hours)
+    setTeam(tm.team)
   }, [isAdmin])
 
   useEffect(() => { void load() }, [load])
+
+  // Live search for a client to promote — mirrors the debounced pattern used
+  // on the Clients page. Only role = 'client' accounts show up here; once
+  // someone is promoted they move into `team` and drop out of this search.
+  useEffect(() => {
+    if (!isAdmin || teamQuery.trim().length < 2) {
+      setTeamMatches([])
+      return
+    }
+    const timer = setTimeout(() => {
+      void api.get<{ clients: ClientMatch[] }>(`/admin/clients?q=${encodeURIComponent(teamQuery)}&limit=5`)
+        .then((r) => setTeamMatches(r.clients))
+        .catch(() => setTeamMatches([]))
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [isAdmin, teamQuery])
+
+  async function setRole(userId: string, role: 'client' | 'staff' | 'admin') {
+    setTeamBusy(userId)
+    setTeamStatus(null)
+    try {
+      await api.patch(`/admin/users/${userId}/role`, { role })
+      setTeamStatus({ kind: 'success', text: role === 'client' ? 'Removed from the back office.' : `Now ${role}.` })
+      setTeamQuery('')
+      setTeamMatches([])
+      await load()
+    } catch (err) {
+      setTeamStatus({ kind: 'error', text: err instanceof ApiError ? err.message : 'Could not update that account.' })
+    } finally {
+      setTeamBusy(null)
+    }
+  }
 
   async function saveSettings(e: FormEvent) {
     e.preventDefault()
@@ -241,6 +301,95 @@ export default function Settings() {
               flow end to end without spending anything.
             </p>
           )}
+        </Card>
+      )}
+
+      {isAdmin && (
+        <Card>
+          <h2 className="font-display text-lg text-ink-900">Team</h2>
+          <p className="mt-0.5 text-xs text-ink-400">
+            Anyone with a client account can be given back-office access. Staff can see the
+            calendar, clients and notes, and send texts. Admins can also change settings and
+            manage the team.
+          </p>
+
+          {teamStatus && <div className="mt-3"><Alert kind={teamStatus.kind}>{teamStatus.text}</Alert></div>}
+
+          {team.length === 0 ? (
+            <p className="mt-4 text-sm text-ink-600">Just you, so far.</p>
+          ) : (
+            <ul className="mt-4 divide-y divide-ink-200 text-sm">
+              {team.map((member) => (
+                <li key={member.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                  <div>
+                    <p className="font-medium text-ink-900">
+                      {member.first_name} {member.last_name}
+                      {member.id === user?.id && <span className="ml-1.5 text-xs text-ink-400">(you)</span>}
+                    </p>
+                    <p className="text-xs text-ink-400">
+                      {member.email}{member.phone ? ` · ${phoneDisplay(member.phone)}` : ''} · joined {dateOf(member.created_at)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      aria-label={`Role for ${member.first_name}`}
+                      className="w-32 py-1.5 text-xs"
+                      value={member.role}
+                      disabled={teamBusy === member.id}
+                      onChange={(e) => void setRole(member.id, e.target.value as 'client' | 'staff' | 'admin')}
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="admin">Admin</option>
+                      <option value="client">Remove access</option>
+                    </Select>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="mt-5 border-t border-ink-200 pt-4">
+            <Field label="Add someone" id="team-search" hint="They need their own account first — have them sign up, then search for their email here.">
+              <Input
+                id="team-search" type="search" placeholder="Search by name or email…"
+                value={teamQuery} onChange={(e) => setTeamQuery(e.target.value)}
+              />
+            </Field>
+
+            {teamMatches.length > 0 && (
+              <ul className="mt-2 divide-y divide-ink-200 rounded-lg bg-ink-100">
+                {teamMatches.map((match) => (
+                  <li key={match.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-sm">
+                    <div>
+                      <p className="text-ink-900">{match.first_name} {match.last_name}</p>
+                      <p className="text-xs text-ink-400">{match.email}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary" className="px-3 py-1.5 text-xs"
+                        disabled={teamBusy === match.id}
+                        onClick={() => void setRole(match.id, 'staff')}
+                      >
+                        Make staff
+                      </Button>
+                      <Button
+                        variant="secondary" className="px-3 py-1.5 text-xs"
+                        disabled={teamBusy === match.id}
+                        onClick={() => void setRole(match.id, 'admin')}
+                      >
+                        Make admin
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {teamQuery.trim().length >= 2 && teamMatches.length === 0 && (
+              <p className="mt-2 text-xs text-ink-400">
+                No client account matches that yet — they need to create one first.
+              </p>
+            )}
+          </div>
         </Card>
       )}
 

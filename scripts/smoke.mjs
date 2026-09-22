@@ -129,15 +129,18 @@ async function main() {
   let slot
   let appointmentId
   {
-    // Walk forward until a day the salon is actually open.
+    // Walk forward until a day the salon is actually open. Starts 3 days out
+    // (not tomorrow) so the booked slot stays safely past the 24-hour
+    // cancellation window later in this script, regardless of what time of
+    // day the test happens to run or how long the steps in between take.
     let date
-    for (let i = 1; i <= 14 && !slot; i++) {
+    for (let i = 3; i <= 16 && !slot; i++) {
       date = new Date(Date.now() + i * 86400_000).toISOString().slice(0, 10)
       const res = await call('client', 'GET', `/api/availability?date=${date}&services=${cut.id}`)
       check(`availability for ${date} responds`, res.status === 200, res.body)
       slot = res.body.slots[0]
     }
-    check('some open slot exists in the next two weeks', Boolean(slot))
+    check('some open slot exists in the next couple of weeks', Boolean(slot))
 
     const noServices = await call('client', 'GET', `/api/availability?date=${date}`)
     check('availability requires services', noServices.status === 400, noServices.body)
@@ -195,6 +198,39 @@ async function main() {
 
     const blocked = await call('client', 'GET', `/api/admin/clients/${clientId}`)
     check('clients cannot read notes about themselves', blocked.status === 403, blocked.body)
+  }
+
+  section('Team management')
+  {
+    const empty = await call('owner', 'GET', '/api/admin/team')
+    check('a fresh client is not yet on the team', !empty.body.team.some((m) => m.id === clientId), empty.body.team)
+
+    const denied = await call('client', 'GET', '/api/admin/team')
+    check('clients cannot list the team', denied.status === 403, denied.body)
+
+    const promote = await call('owner', 'PATCH', `/api/admin/users/${clientId}/role`, { role: 'staff' })
+    check('an admin can promote a client to staff', promote.status === 200, promote.body)
+
+    const listed = await call('owner', 'GET', '/api/admin/team')
+    check('the promoted account now appears on the team',
+      listed.body.team.some((m) => m.id === clientId && m.role === 'staff'), listed.body.team)
+
+    const rosterAfter = await call('owner', 'GET', '/api/admin/clients?q=Dana')
+    check('a promoted account drops out of the client roster',
+      !rosterAfter.body.clients.some((c) => c.id === clientId), rosterAfter.body.clients)
+
+    const staffCanNow = await call('client', 'GET', '/api/admin/clients')
+    check('the promoted account can now reach the back office', staffCanNow.status === 200, staffCanNow.body)
+
+    const soleAdmin = await call('owner', 'GET', '/api/auth/me')
+    const guard = await call('owner', 'PATCH', `/api/admin/users/${soleAdmin.body.user.id}/role`, { role: 'staff' })
+    check('the only admin cannot demote themselves', guard.status === 409, guard.body)
+
+    const demote = await call('owner', 'PATCH', `/api/admin/users/${clientId}/role`, { role: 'client' })
+    check('an admin can remove back-office access again', demote.status === 200, demote.body)
+
+    const backToClient = await call('client', 'GET', '/api/admin/clients')
+    check('a demoted account loses back-office access immediately', backToClient.status === 403, backToClient.body)
   }
 
   section('Payments')

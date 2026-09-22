@@ -523,6 +523,20 @@ admin.patch('/settings', requireAdmin, async (c) => {
 
 // ------------------------------------------------------------ staff users --
 
+/**
+ * Everyone with back-office access. Separate from GET /clients, which only
+ * returns role = 'client' — once someone is promoted they'd otherwise vanish
+ * from every list in the app.
+ */
+admin.get('/team', requireAdmin, async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, first_name, last_name, email, phone, role, created_at
+       FROM users WHERE role IN ('staff', 'admin')
+      ORDER BY role, first_name, last_name`,
+  ).all()
+  return c.json({ team: results ?? [] })
+})
+
 const roleSchema = z.object({ role: z.enum(['client', 'staff', 'admin']) })
 
 admin.patch('/users/:id/role', requireAdmin, async (c) => {
