@@ -1,4 +1,10 @@
-const PBKDF2_ITERATIONS = 210_000
+// Cloudflare Workers' WebCrypto implementation caps PBKDF2 at 100,000
+// iterations (SubtleCrypto.deriveBits throws NotSupportedError above that),
+// so this sits at the platform's ceiling rather than current OWASP guidance
+// of 600,000+. The iteration count travels inside each stored hash
+// (`pbkdf2$<iterations>$...`), so raising this later — if Cloudflare raises
+// the cap — reads old hashes correctly without a migration.
+const PBKDF2_ITERATIONS = 100_000
 const SALT_BYTES = 16
 const KEY_BITS = 256
 
